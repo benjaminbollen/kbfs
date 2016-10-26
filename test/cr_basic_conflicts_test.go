@@ -350,6 +350,66 @@ func TestCrConflictUnmergedRenameFileOverModifiedFile(t *testing.T) {
 	)
 }
 
+// bob modifies and renames a file that was modified by alice.
+func TestCrConflictUnmergedRenameModifiedFile(t *testing.T) {
+	test(t,
+		users("alice", "bob"),
+		as(alice,
+			write("a/b", "hello"),
+		),
+		as(bob,
+			disableUpdates(),
+		),
+		as(alice,
+			write("a/b", "world"),
+		),
+		as(bob, noSync(),
+			write("a/b", "uh oh"),
+			rename("a/b", "a/c"),
+			reenableUpdates(),
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			read("a/b", "world"),
+			read("a/c", "uh oh"),
+		),
+		as(alice,
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			read("a/b", "world"),
+			read("a/c", "uh oh"),
+		),
+	)
+}
+
+// bob sets the mtime on and renames a file that had its mtime set by alice.
+func TestCrConflictUnmergedRenameSetMtimeFile(t *testing.T) {
+	targetMtime1 := time.Now().Add(1 * time.Minute)
+	targetMtime2 := targetMtime1.Add(1 * time.Minute)
+	test(t,
+		users("alice", "bob"),
+		as(alice,
+			write("a/b", "hello"),
+		),
+		as(bob,
+			disableUpdates(),
+		),
+		as(alice,
+			setmtime("a/b", targetMtime1),
+		),
+		as(bob, noSync(),
+			setmtime("a/b", targetMtime2),
+			rename("a/b", "a/c"),
+			reenableUpdates(),
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			mtime("a/b", targetMtime1),
+			mtime("a/c", targetMtime2),
+		),
+		as(alice,
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			mtime("a/b", targetMtime1),
+			mtime("a/c", targetMtime2),
+		),
+	)
+}
+
 // bob renames a file from a new directory over one modified by alice.
 func TestCrConflictUnmergedRenameFileInNewDirOverModifiedFile(t *testing.T) {
 	test(t,
@@ -506,6 +566,66 @@ func TestCrConflictMergedRenameFileOverModifiedFile(t *testing.T) {
 			lsdir("a/", m{"b$": "FILE", crnameEsc("b", bob): "FILE"}),
 			read("a/b", "world"),
 			read(crname("a/b", bob), "uh oh"),
+		),
+	)
+}
+
+// alice modifies and renames a file that was modified by bob.
+func TestCrConflictMergedRenameModifiedFile(t *testing.T) {
+	test(t,
+		users("alice", "bob"),
+		as(alice,
+			write("a/b", "hello"),
+		),
+		as(bob,
+			disableUpdates(),
+		),
+		as(alice,
+			write("a/b", "world"),
+			rename("a/b", "a/c"),
+		),
+		as(bob, noSync(),
+			write("a/b", "uh oh"),
+			reenableUpdates(),
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			read("a/b", "uh oh"),
+			read("a/c", "world"),
+		),
+		as(alice,
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			read("a/b", "uh oh"),
+			read("a/c", "world"),
+		),
+	)
+}
+
+// alice sets the mtime on and renames a file that had its mtime set by bob.
+func TestCrConflictMergedRenameSetMtimeFile(t *testing.T) {
+	targetMtime1 := time.Now().Add(1 * time.Minute)
+	targetMtime2 := targetMtime1.Add(1 * time.Minute)
+	test(t,
+		users("alice", "bob"),
+		as(alice,
+			write("a/b", "hello"),
+		),
+		as(bob,
+			disableUpdates(),
+		),
+		as(alice,
+			setmtime("a/b", targetMtime1),
+			rename("a/b", "a/c"),
+		),
+		as(bob, noSync(),
+			setmtime("a/b", targetMtime2),
+			reenableUpdates(),
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			mtime("a/b", targetMtime2),
+			mtime("a/c", targetMtime1),
+		),
+		as(alice,
+			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
+			mtime("a/b", targetMtime2),
+			mtime("a/c", targetMtime1),
 		),
 	)
 }

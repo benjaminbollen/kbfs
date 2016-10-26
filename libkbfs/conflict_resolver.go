@@ -1251,6 +1251,17 @@ outer:
 	return nil
 }
 
+// crConflictCheckQuick checks whether the two given chains have any
+// direct conflicts.  TODO: currently this is a little pessimistic
+// because it assumes any set attrs are in conflict, when in reality
+// they can be for different attributes, or the same attribute with
+// the same value.
+func crConflictCheckQuick(unmergedChain, mergedChain *crChain) bool {
+	return unmergedChain != nil && mergedChain != nil &&
+		((unmergedChain.hasSyncOp() && mergedChain.hasSyncOp()) ||
+			(unmergedChain.hasSetAttrOp() && mergedChain.hasSetAttrOp()))
+}
+
 // fixRenameConflicts checks every unmerged createOp associated with a
 // rename to see if it will cause a cycle.  If so, it makes it a
 // symlink create operation instead.  It also checks whether a
@@ -1303,6 +1314,44 @@ func (cr *ConflictResolver) fixRenameConflicts(ctx context.Context,
 			}
 
 			doubleRenames = append(doubleRenames, mergedMostRecent)
+			continue
+		}
+
+		// If this node was modified in both branches, we need to fork
+		// the node, so we can get rid of the unmerged remove op and
+		// force a copy on the create op.
+		unmergedChain := unmergedChains.byOriginal[ptr]
+		mergedChain := mergedChains.byOriginal[ptr]
+		if crConflictCheckQuick(unmergedChain, mergedChain) {
+			cr.log.CDebugf(ctx, "File that was renamed on the unmerged "+
+				"branch from %s -> %s has conflicting edits, forking "+
+				"(original ptr %v)", info.oldName, info.newName, ptr)
+			oldParent := unmergedChains.byOriginal[info.originalOldParent]
+			for _, op := range oldParent.ops {
+				ro, ok := op.(*rmOp)
+				if !ok {
+					continue
+				}
+				if ro.OldName == info.oldName {
+					ro.dropThis = true
+					break
+				}
+			}
+			newParent := unmergedChains.byOriginal[info.originalNewParent]
+			for _, npOp := range newParent.ops {
+				co, ok := npOp.(*createOp)
+				if !ok {
+					continue
+				}
+				if co.NewName == info.newName && co.renamed {
+					co.forceCopy = true
+					co.renamed = false
+					// Clear out the ops on the file itself, as we
+					// will be doing a fresh create instead.
+					unmergedChain.ops = []op{}
+					break
+				}
+			}
 			continue
 		}
 
@@ -1435,6 +1484,38 @@ func (cr *ConflictResolver) fixRenameConflicts(ctx context.Context,
 			}
 
 			removeRenames = append(removeRenames, ptr)
+		}
+	}
+
+	for ptr, info := range mergedChains.renamedOriginals {
+		if mergedChains.isDeleted(ptr) {
+			continue
+		}
+
+		// Skip double renames, already dealt with them above.
+		if unmergedInfo, ok := unmergedChains.renamedOriginals[ptr]; ok &&
+			(info.originalNewParent != unmergedInfo.originalNewParent ||
+				info.newName != unmergedInfo.newName) {
+			continue
+		}
+
+		// If this is a file that was modified in both branches, we
+		// need to fork the file and tell the unmerged copy to keep
+		// its current name.
+		unmergedChain := unmergedChains.byOriginal[ptr]
+		mergedChain := mergedChains.byOriginal[ptr]
+		if crConflictCheckQuick(unmergedChain, mergedChain) {
+			cr.log.CDebugf(ctx, "File that was renamed on the merged "+
+				"branch from %s -> %s has conflicting edits, forking "+
+				"(original ptr %v)", info.oldName, info.newName, ptr)
+			for _, op := range unmergedChain.ops {
+				switch realOp := op.(type) {
+				case *syncOp:
+					realOp.keepUnmergedTailName = true
+				case *setAttrOp:
+					realOp.keepUnmergedTailName = true
+				}
+			}
 		}
 	}
 
@@ -1698,10 +1779,7 @@ func collapseActions(unmergedChains *crChains, unmergedPaths []path,
 			continue
 		}
 
-		fileActions, ok := actionMap[p.tailPointer()]
-		if !ok {
-			continue
-		}
+		fileActions := actionMap[p.tailPointer()]
 
 		// If this is a directory with setAttr(mtime)-related actions,
 		// just those action should be collapsed into the parent.
@@ -1938,7 +2016,7 @@ func (cr *ConflictResolver) doActions(ctx context.Context,
 	lState *lockState, unmergedChains, mergedChains *crChains,
 	unmergedPaths []path, mergedPaths map[BlockPointer]path,
 	actionMap map[BlockPointer]crActionList, lbc localBcache,
-	newFileBlocks fileBlockMap) error {
+	newFileBlocks fileBlockMap) (err error) {
 	// For each set of actions:
 	//   * Find the corresponding chains
 	//   * Make a reference to each slice of ops
@@ -1979,6 +2057,7 @@ func (cr *ConflictResolver) doActions(ctx context.Context,
 		}
 
 		actions := actionMap[mergedPath.tailPointer()]
+
 		// Now get the directory blocks.
 		unmergedBlock, err := cr.fetchDirBlockCopy(ctx, lState,
 			unmergedChains.mostRecentChainMDInfo.kmd,
