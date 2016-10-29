@@ -379,6 +379,38 @@ func TestCrConflictUnmergedRenameModifiedFile(t *testing.T) {
 	)
 }
 
+// bob modifies and renames (to another dir) a file that was modified
+// by alice.
+func TestCrConflictUnmergedRenameAcrossDirsModifiedFile(t *testing.T) {
+	test(t,
+		users("alice", "bob"),
+		as(alice,
+			write("a/b", "hello"),
+		),
+		as(bob,
+			disableUpdates(),
+		),
+		as(alice,
+			write("a/b", "world"),
+		),
+		as(bob, noSync(),
+			write("a/b", "uh oh"),
+			rename("a/b", "b/c"),
+			reenableUpdates(),
+			lsdir("a/", m{"b$": "FILE"}),
+			read("a/b", "world"),
+			lsdir("b/", m{"c$": "FILE"}),
+			read("b/c", "uh oh"),
+		),
+		as(alice,
+			lsdir("a/", m{"b$": "FILE"}),
+			read("a/b", "world"),
+			lsdir("b/", m{"c$": "FILE"}),
+			read("b/c", "uh oh"),
+		),
+	)
+}
+
 // bob sets the mtime on and renames a file that had its mtime set by alice.
 func TestCrConflictUnmergedRenameSetMtimeFile(t *testing.T) {
 	targetMtime1 := time.Now().Add(1 * time.Minute)
@@ -595,6 +627,39 @@ func TestCrConflictMergedRenameModifiedFile(t *testing.T) {
 			lsdir("a/", m{"b$": "FILE", "c$": "FILE"}),
 			read("a/b", "uh oh"),
 			read("a/c", "world"),
+		),
+	)
+}
+
+// alice modifies and renames (to another dir) a file that was modified
+// by bob.
+func TestCrConflictMergedRenameAcrossDirsModifiedFile(t *testing.T) {
+	test(t,
+		users("alice", "bob"),
+		as(alice,
+			write("a/b", "hello"),
+		),
+		as(bob,
+			disableUpdates(),
+		),
+		as(alice,
+			write("a/b", "world"),
+			rename("a/b", "b/c"),
+		),
+		as(bob, noSync(),
+			write("a/b", "uh oh"),
+			write("a/c", "test"),
+			reenableUpdates(),
+			lsdir("a/", m{"b$": "FILE"}),
+			read("a/b", "uh oh"),
+			lsdir("b/", m{"c$": "FILE"}),
+			read("b/c", "world"),
+		),
+		as(alice,
+			lsdir("a/", m{"b$": "FILE"}),
+			read("a/b", "uh oh"),
+			lsdir("b/", m{"c$": "FILE"}),
+			read("b/c", "world"),
 		),
 	)
 }

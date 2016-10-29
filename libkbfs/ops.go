@@ -777,13 +777,12 @@ func (so *syncOp) checkConflict(
 		unmergedParentMostRecent := so.getFinalPath().parentPath().tailPointer()
 		if so.keepUnmergedTailName {
 			toName = so.getFinalPath().tailName()
-			unmergedParentMostRecent = BlockPointer{}
 		}
 
 		return &renameUnmergedAction{
 			fromName: so.getFinalPath().tailName(),
 			toName:   toName,
-			unmergedParentMostRecent: unmergedParentMostRecent,
+			unmergedParentMostRecent: so.getFinalPath().parentPath().tailPointer(),
 			mergedParentMostRecent: mergedOp.getFinalPath().parentPath().
 				tailPointer(),
 		}, nil
