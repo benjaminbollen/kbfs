@@ -769,12 +769,12 @@ func (so *syncOp) checkConflict(
 		// Any sync on the same file is a conflict.  (TODO: add
 		// type-specific intelligent conflict resolvers for file
 		// contents?)
-		toName, err := renamer.ConflictRename(so, mergedOp.getFinalPath().tailName())
+		toName, err := renamer.ConflictRename(
+			ctx, so, mergedOp.getFinalPath().tailName())
 		if err != nil {
 			return nil, err
 		}
 
-		unmergedParentMostRecent := so.getFinalPath().parentPath().tailPointer()
 		if so.keepUnmergedTailName {
 			toName = so.getFinalPath().tailName()
 		}
