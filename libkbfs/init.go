@@ -53,6 +53,10 @@ type InitParams struct {
 	// before marked for lazy revalidation.
 	TLFValidDuration time.Duration
 
+	// MetadataVersion is the default version of metadata to use
+	// when creating new metadata.
+	MetadataVersion int
+
 	// LogToFile if true, logs to a default file location.
 	LogToFile bool
 
@@ -89,6 +93,18 @@ func GetDefaultMDServer(ctx Context) string {
 	}
 }
 
+// GetDefaultMetadataVersion returns the default metadata version per run mode.
+func GetDefaultMetadataVersion(ctx Context) MetadataVer {
+	switch ctx.GetRunMode() {
+	case libkb.StagingRunMode:
+		return SegregatedKeyBundlesVer
+	case libkb.ProductionRunMode:
+		return InitialExtraMetadataVer
+	default:
+		return InitialExtraMetadataVer
+	}
+}
+
 func defaultLogPath(ctx Context) string {
 	return filepath.Join(ctx.GetLogDir(), libkb.KBFSLogFileName)
 }
@@ -100,6 +116,7 @@ func DefaultInitParams(ctx Context) InitParams {
 		BServerAddr:      GetDefaultBServer(ctx),
 		MDServerAddr:     GetDefaultMDServer(ctx),
 		TLFValidDuration: tlfValidDurationDefault,
+		MetadataVersion:  int(GetDefaultMetadataVersion(ctx)),
 		LogFileConfig: logger.LogFileConfig{
 			MaxAge:       30 * 24 * time.Hour,
 			MaxSize:      128 * 1024 * 1024,
@@ -134,6 +151,7 @@ func AddFlags(flags *flag.FlagSet, ctx Context) *InitParams {
 	// The default is to *DELETE* old log files for kbfs.
 	flags.IntVar(&params.LogFileConfig.MaxKeepFiles, "log-file-max-keep-files", defaultParams.LogFileConfig.MaxKeepFiles, "Maximum number of log files for this service, older ones are deleted. 0 for infinite.")
 	flags.StringVar(&params.WriteJournalRoot, "write-journal-root", filepath.Join(ctx.GetDataDir(), "kbfs_journal"), "(EXPERIMENTAL) If non-empty, permits write journals to be turned on for TLFs which will be put in the given directory")
+	flags.IntVar(&params.MetadataVersion, "md-version", defaultParams.MetadataVersion, "Metadata version to use when creating new metadata")
 	return &params
 }
 
@@ -309,6 +327,7 @@ func Init(ctx Context, params InitParams, keybaseServiceCn KeybaseServiceCn, onI
 		return lg
 	})
 
+	config.SetMetadataVersion(MetadataVer(params.MetadataVersion))
 	config.SetTLFValidDuration(params.TLFValidDuration)
 
 	kbfsOps := NewKBFSOpsStandard(config)
